@@ -53,6 +53,7 @@ class SDLoaderBase(ABC):
         self.version = version
         self.checkpoint_engine = TorchCheckpointEngine() if checkpoint_engine is None else checkpoint_engine
         self.check_ckpt_list()
+        self.map_location = torch.device("cpu")
 
     def load(self,
              mp_world_size,
@@ -94,8 +95,7 @@ class SDLoaderBase(ABC):
         if num_ckpt == mp_world_size:
             assert os.path.exists(load_path)
             #logger.info(f'rank: {mp_rank} loading checkpoint: {load_path}')
-            sd = self.checkpoint_engine.load(load_path, map_location=lambda storage, \
-                loc: storage)
+            sd = self.checkpoint_engine.load(load_path, map_location=self.map_location)
 
             if quantize:
                 quantizer = WeightQuantization(mlp_extra_grouping=mlp_extra_grouping, mp_size=mp_world_size)
@@ -120,7 +120,7 @@ class SDLoaderBase(ABC):
         ckpt_list = [self.ckpt_list[i] for i in range(num_to_merge * mp_rank, num_to_merge * (mp_rank + 1))]
 
         logger.info(f"mp_rank: {mp_rank}, ckpt_list: {ckpt_list}")
-        sd_list = [self.checkpoint_engine.load(ckpt, map_location=lambda storage, loc: storage) for ckpt in ckpt_list]
+        sd_list = [self.checkpoint_engine.load(ckpt, map_location=self.map_location) for ckpt in ckpt_list]
         return sd_list
 
     def get_split_state_dict(self, mp_world_size, mp_rank):
@@ -133,7 +133,7 @@ class SDLoaderBase(ABC):
 
         logger.info(f"mp_rank: {mp_rank}, ckpt_list: {self.ckpt_list[ckpt_index]}, offset: {ckpt_offset}")
 
-        sd = self.checkpoint_engine.load(self.ckpt_list[ckpt_index], map_location=lambda storage, loc: storage)
+        sd = self.checkpoint_engine.load(self.ckpt_list[ckpt_index], map_location=self.map_location)
 
         return sd, num_to_split, ckpt_offset
 
@@ -167,7 +167,7 @@ class SDLoaderBase(ABC):
         #logger.info(f'checkpoint file list: {self.ckpt_list}')
         assert len(self.ckpt_list) > 0
 
-        sd = self.checkpoint_engine.load(self.ckpt_list[0], map_location=lambda storage, loc: storage)
+        sd = self.checkpoint_engine.load(self.ckpt_list[0], map_location=self.map_location)
 
         # check checkpoint count is same with saved mp_world_size
         if 'mp_world_size' in sd.keys():
