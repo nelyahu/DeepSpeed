@@ -406,7 +406,7 @@ class MegatronSDLoader(SDLoaderBase):
             "mlp.dense_h_to_4h.weight", "mlp.dense_h_to_4h.bias"
         ]
 
-        sd = self.checkpoint_engine.load(ckpt_file_name, map_location=lambda storage, loc: storage)
+        sd = self.checkpoint_engine.load(ckpt_file_name, map_location=self.map_location)
 
         # partial_key is a sub-string of one key in the sd
         def check_key_exist(partial_key, sd):
