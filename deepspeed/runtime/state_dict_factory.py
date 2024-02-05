@@ -53,8 +53,8 @@ class SDLoaderBase(ABC):
         self.version = version
         self.checkpoint_engine = TorchCheckpointEngine() if checkpoint_engine is None else checkpoint_engine
         self.check_ckpt_list()
-        #self.map_location = torch.device("cpu")
-        self.map_location = lambda storage, loc: storage
+        self.map_location = torch.device("cpu")
+        #self.map_location = lambda storage, loc: storage
 
     def load(self,
              mp_world_size,
