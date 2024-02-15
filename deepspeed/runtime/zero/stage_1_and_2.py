@@ -1967,7 +1967,7 @@ class DeepSpeedZeroOptimizer(ZeROOptimizer):
                 grad.data.mul_(1. / combined_scale)
 
     def _check_overflow(self, partition_gradients=True):
-        self.overflow = self.has_overflow(partition_gradients)
+        self.overflow = False # self.has_overflow(partition_gradients)
 
     # `params` is a list / generator of torch.Variable
     def has_overflow_serial(self, params, is_grad_list=False):
