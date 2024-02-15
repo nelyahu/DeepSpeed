@@ -237,7 +237,8 @@ class ThroughputTimer:
         self._init_timer()
         self.started = True
         if self.global_step_count >= self.start_step:
-            get_accelerator().synchronize()
+            if not get_accelerator().device_name() == 'hpu':
+                get_accelerator().synchronize()
             self.start_time = time.time()
 
     def stop(self, global_step=False, report_speed=True):
@@ -249,7 +250,8 @@ class ThroughputTimer:
             self.global_step_count += 1
 
         if self.start_time > 0:
-            get_accelerator().synchronize()
+            if not get_accelerator().device_name() == 'hpu':
+                get_accelerator().synchronize()
             self.end_time = time.time()
             duration = self.end_time - self.start_time
             self.total_elapsed_time += duration
