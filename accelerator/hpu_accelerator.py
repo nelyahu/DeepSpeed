@@ -154,6 +154,9 @@ class HPU_Accelerator(DeepSpeedAccelerator):
             self.fp16_supported = htexp._is_fp16_supported()
         return self.fp16_supported
 
+    def is_int64_supported(self):
+        return False
+
     def supported_dtypes(self):
         supported_dtypes = [torch.float, torch.bfloat16]
         if self.is_fp16_supported():

@@ -174,6 +174,10 @@ class DeepSpeedAccelerator(ABC):
         ...
 
     @abc.abstractmethod
+    def is_int64_supported(self):
+        ...
+
+    @abc.abstractmethod
     def supported_dtypes(self):
         ...
 

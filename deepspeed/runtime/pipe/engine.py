@@ -141,29 +141,7 @@ class PipelineEngine(DeepSpeedEngine):
         logger.info(f'is_pipe_partitioned= {self.is_pipe_partitioned} '
                     f'is_grad_partitioned= {self.is_grad_partitioned}')
 
-        model_parameters = filter(lambda p: p.requires_grad, self.module.parameters())
-        num_params = sum([p.numel() for p in model_parameters])
-        unique_params = num_params
-        # Subtract tied parameters if we don't own them
-        if self.module.tied_comms:
-            tied_params = 0
-            for key, d in self.module.tied_comms.items():
-                if self.global_rank != min(d['ranks']):
-                    tied_params += sum(p.numel() for p in d['module'].parameters())
-            unique_params -= tied_params
-        params_tensor = torch.LongTensor(data=[num_params, unique_params]).to(self.device)
-        dist.all_reduce(params_tensor, group=self.grid.get_model_parallel_group())
-        params_tensor = params_tensor.tolist()
-        total_params = params_tensor[0]
-        unique_params = params_tensor[1]
-        if self.grid.data_parallel_id == 0:
-            logger.info(f'RANK={self.global_rank} '
-                        f'STAGE={self.stage_id} '
-                        f'LAYERS={self.module._local_stop - self.module._local_start} '
-                        f'[{self.module._local_start}, {self.module._local_stop}) '
-                        f'STAGE_PARAMS={num_params} ({num_params/1e6:0.3f}M) '
-                        f'TOTAL_PARAMS={total_params} ({total_params/1e6:0.3f}M) '
-                        f'UNIQUE_PARAMS={unique_params} ({unique_params/1e6:0.3f}M)')
+        self.log_total_params()
 
         #initialize peer-2-peer communication and allreduce groups
         if self.is_pipe_parallel:
@@ -247,6 +225,62 @@ class PipelineEngine(DeepSpeedEngine):
             self.timers(BACKWARD_REDUCE_GLOBAL_TIMER).stop()
             self.timers(STEP_MICRO_TIMER).start()
             self.timers(STEP_MICRO_TIMER).stop()
+
+    def log_total_params(self):
+        model_parameters = filter(lambda p: p.requires_grad, self.module.parameters())
+        num_params = sum([p.numel() for p in model_parameters])
+        unique_params = num_params
+        # Subtract tied parameters if we don't own them
+        if self.module.tied_comms:
+            tied_params = 0
+            for key, d in self.module.tied_comms.items():
+                if self.global_rank != min(d['ranks']):
+                    tied_params += sum(p.numel() for p in d['module'].parameters())
+            unique_params -= tied_params
+
+        if get_accelerator().is_int64_supported():
+            # Efficient compute for INT64 supporting accelerators
+            params_tensor = torch.LongTensor(data=[num_params, unique_params]).to(self.device)
+            dist.all_reduce(params_tensor, group=self.grid.get_model_parallel_group())
+            params_tensor = params_tensor.tolist()
+            total_params = params_tensor[0]
+            unique_params = params_tensor[1]
+        else:
+            # Some accelrators does not support INT64, and requires different handling.
+            # Use Int32 representation instead of Int64 for calclations.
+            # num_param division & modulo after all reduce should be lower than MAX Int32.
+            # Using this value will be safe if used with less than ~2000 devices.
+            # Int32Max > all_reduce_group*chunk_size
+            chunk_size = 10**6
+
+            num_params_quotient = num_params // chunk_size
+            num_params_remainder = num_params % chunk_size
+
+            unique_params_quotient = unique_params // chunk_size
+            unique_params_remainder = unique_params % chunk_size
+
+            assert (unique_params_quotient * chunk_size +
+                    unique_params_remainder) == unique_params, "Value mismatch after Int64 splitting"
+            assert (num_params_quotient * chunk_size +
+                    num_params_remainder) == num_params, "Value mismatch after Int64 splitting"
+
+            params_tensor = torch.IntTensor(
+                data=[num_params_quotient, num_params_remainder, unique_params_quotient, unique_params_remainder]).to(
+                    self.device)
+
+            dist.all_reduce(params_tensor, group=self.grid.get_model_parallel_group())
+            params_tensor = params_tensor.tolist()
+            total_params = params_tensor[0] * chunk_size + params_tensor[1]
+            unique_params = params_tensor[2] * chunk_size + params_tensor[3]
+
+        if self.grid.data_parallel_id == 0:
+            logger.info(f'RANK={self.global_rank} '
+                        f'STAGE={self.stage_id} '
+                        f'LAYERS={self.module._local_stop - self.module._local_start} '
+                        f'[{self.module._local_start}, {self.module._local_stop}) '
+                        f'STAGE_PARAMS={num_params} ({num_params/1e6:0.3f}M) '
+                        f'TOTAL_PARAMS={total_params} ({total_params/1e6:0.3f}M) '
+                        f'UNIQUE_PARAMS={unique_params} ({unique_params/1e6:0.3f}M)')
 
     def set_has_attention_mask(self, value):
         assert isinstance(value, bool)
